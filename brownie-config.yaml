@@ -1,0 +1,14 @@
+project:
+  name: STEPAIN-TOKEN
+  version: 0.1.0
+github:
+  token: ${GITHUB_TOKEN}
+dependencies:
+  - OpenZeppelin/openzeppelin-contracts@4.8.1
+  - smartcontractkit/chainlink-brownie-contracts@1.1.1
+compiler:
+  solc:
+    remappings:
+      - "@openzeppelin=OpenZeppelin/openzeppelin-contracts@4.8.1"
+      - "@chainlink=smartcontractkit/chainlink-brownie-contracts@1.1.1"
+dotenv: .env
