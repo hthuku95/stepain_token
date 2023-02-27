@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.18;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract Stepain is ERC20 {
 
     uint256 private initialSupply;
-    uint256 private _maxTransferAmount = 4000000 * 10 ** decimals();
+    uint256 private _maxTransferAmount;
 
-    address private constant _marketingFeeAddress = 0x6eF969580Bb4eA293878a713197B895BfDD82bbe;
-    address private constant _charityFeeAddress = 0xc2ACF98406BE652AfB7b1274ab1eFCb3fd15f115;
-    address private constant _liquidityFeeAddress = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
-    address private constant _taxFeeAddress = 0xfa1281d974fE922437F03817947246070eE898B1;
-    address private constant _unstakeFeeAddress = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
+    address private constant MARKETING_FEE_ADDRESS = 0x6eF969580Bb4eA293878a713197B895BfDD82bbe;
+    address private constant CHARITY_FEE_ADDRESS = 0xc2ACF98406BE652AfB7b1274ab1eFCb3fd15f115;
+    address private constant LIQUIDITY_FEE_ADDRESS = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
+    address private constant TAX_FEE_ADDRESS = 0xfa1281d974fE922437F03817947246070eE898B1;
+    address private constant UNSTAKE_FEE_ADDRESS = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
 
-    uint256 private _marketingFee = uint256(1) / uint256(2);
-    uint256 private _charityFee = uint256(1) / uint256(2);
-    uint256 private _liquidityFee = uint256(1) / uint256(2);
-    uint256 private _taxFee = uint256(1) / uint256(2);
-    uint256 private _unstakeFee = 15;
+    uint256 private _marketingFee;
+    uint256 private _charityFee;
+    uint256 private _liquidityFee;
+    uint256 private _taxFee;
+    uint256 private _unstakeFee;
     uint256  private constant CLAIM_PERIOD = 15 days;
 
     // Anti-bot checker
@@ -44,7 +44,15 @@ contract Stepain is ERC20 {
     event PayTaxFee(address indexed user, uint256 amount);
 
     constructor() ERC20("STEPAIN", "MRC") {
-        initialSupply = 400000000 * 10 ** decimals();
+        initialSupply = 400000000 * (10 ** decimals());
+        _maxTransferAmount = 4000000 * (10 ** decimals());
+
+        _marketingFee = uint256(1) / uint256(2);
+        _charityFee = uint256(1) / uint256(2);
+        _liquidityFee = uint256(1) / uint256(2);
+        _taxFee = uint256(1) / uint256(2);
+        _unstakeFee = 15;
+
         _mint(msg.sender, initialSupply);
     }
     
@@ -82,19 +90,19 @@ contract Stepain is ERC20 {
     function _payFees(address _user,uint256 _amount) internal returns(uint256) {
         // Marketing fee
         uint256 marketingfee = (_amount * getMarketingFee()) / 100;
-        _transfer(_user,_marketingFeeAddress,marketingfee);
+        _transfer(_user,MARKETING_FEE_ADDRESS,marketingfee);
         emit PayMarketingFee(_user,marketingfee);
         // Charity fee
         uint256 charityfee = (_amount * getCharityFee()) / 100;
-        _transfer(_user,_charityFeeAddress,charityfee);
+        _transfer(_user,CHARITY_FEE_ADDRESS,charityfee);
         emit PayCharityFee(_user,charityfee);
         // Liquidity fee
         uint256 liquidityfee = (_amount * getLiquidityFee()) / 100;
-        _transfer(_user,_liquidityFeeAddress,liquidityfee);
+        _transfer(_user,LIQUIDITY_FEE_ADDRESS,liquidityfee);
         emit PayLiquidityFee(_user,liquidityfee);
         // Tax Fee
         uint256 taxfee = (_amount * getTaxFee()) / 100;
-        _transfer(_user,_taxFeeAddress,taxfee);
+        _transfer(_user,TAX_FEE_ADDRESS,taxfee);
         emit PayTaxFee(_user,taxfee);
 
         uint256 finalTransferAmount = _amount - (marketingfee + charityfee + liquidityfee + taxfee);
@@ -111,29 +119,29 @@ contract Stepain is ERC20 {
     }
     
     // Stake
-    function stakeTokens(uint256 _amount) public {
+    function stakeTokens(uint256 amount) external {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(_amount > 0,"Staking amount must be more than 0");
-        require(balanceOf(msg.sender) >= _amount,"Staking amount is more than balance");
-        _burn(msg.sender,_amount);
-        stakingBalance[msg.sender] = stakingBalance[msg.sender] + _amount;
-        emit Stake(msg.sender,_amount);
+        require(amount > 0,"Staking amount must be more than 0");
+        require(balanceOf(msg.sender) >= amount,"Staking amount is more than balance");
+        _burn(msg.sender,amount);
+        stakingBalance[msg.sender] = stakingBalance[msg.sender] + amount;
+        emit Stake(msg.sender,amount);
         lastTransactionTimestamp[msg.sender] = block.timestamp;
     }
 
     // Unstake
-    function unstakeTokens(uint256 _amount) public {
+    function unstakeTokens(uint256 amount) external {
         uint256 balance = stakingBalance[msg.sender];
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
         require(balance > 0,"Your staking balance is 0");
-        require(_amount > 0,"Unstaking amount must be more than 0");
-        require(balance >= _amount,"Staking balance must be more than unstaking amount");
-        uint256 unstakeFee = _amount * _unstakeFee / 100;
-        _mint(_unstakeFeeAddress,unstakeFee);
-        uint256 _unstakeAmount = _amount - _unstakeFee;
+        require(amount > 0,"Unstaking amount must be more than 0");
+        require(balance >= amount,"Staking balance must be more than unstaking amount");
+        uint256 unstakeFee = (amount * _unstakeFee) / 100;
+        _mint(UNSTAKE_FEE_ADDRESS,unstakeFee);
+        uint256 _unstakeAmount = amount - _unstakeFee;
         _mint(msg.sender,_unstakeAmount);
-        stakingBalance[msg.sender] = stakingBalance[msg.sender] - _amount;
-        emit Unstake(msg.sender,_amount);
+        stakingBalance[msg.sender] = stakingBalance[msg.sender] - amount;
+        emit Unstake(msg.sender,amount);
         lastTransactionTimestamp[msg.sender] = block.timestamp;
     }
 
@@ -146,17 +154,21 @@ contract Stepain is ERC20 {
     }
 
     // Withdraw
-    function withdraw(uint256 _amount) external {
+    function withdraw(uint256 amount) external {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(depositBalance[msg.sender] >= _amount, "Insufficient balance");
-        depositBalance[msg.sender] = depositBalance[msg.sender] - _amount;
-        (bool success, ) = msg.sender.call{value: _amount}("");
-        require(success, "Withdrawal failed");
-        emit Withdraw(msg.sender,_amount);
+        require(depositBalance[msg.sender] >= amount, "Insufficient balance");
+
         lastTransactionTimestamp[msg.sender] = block.timestamp;
+        depositBalance[msg.sender] -= amount;
+
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Withdrawal failed");
+
+        emit Withdraw(msg.sender,amount);
     }
 
-    function autoburn() public {
+    // Autoburn
+    function autoburn() external {
         require(block.timestamp >= lastAutoburnTimestamp + AUTOBURN_INTERVAL, "Autoburn interval not yet reached");
         
         uint256 burnAmount = (totalSupply() * 5) / 1000; // 0.5% of total supply
@@ -169,28 +181,3 @@ contract Stepain is ERC20 {
         lastAutoburnTimestamp = block.timestamp;
     }
 }
-
-/**
-I will create a token smart contract with the following features :
-
-- Transfer
-- Anti-Whale
-- deposit
-- withdraw
-- mint
-- Staking
-- Unstaking
-- Anti-Bot
-- Marketing Fee
-- Charity Fee
-- Liquidity Fee
-- Tax Fee
-- Claim token 3% Every 15days
-- autoburn function 0,5% every 4 months maximum autoburn 25%.of total supply.
-- add security protocols.
-********
-Token Name : STEPAIN
-Symbol : MRC
-decimals 18
-Tokens in circulation 400.000.000 MRC
- */
