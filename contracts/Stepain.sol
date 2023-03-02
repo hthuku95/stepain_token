@@ -1,221 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-// Context contract
-abstract contract Context {
-    function _msgSender() internal view virtual returns (address) {
-        return msg.sender;
-    }
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-    function _msgData() internal view virtual returns (bytes calldata) {
-        return msg.data;
-    }
-}
-
-// IERC20 interface
-interface IERC20 {
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool);
-}
-
-// IERC20 Metadata
-interface IERC20Metadata is IERC20 {
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function decimals() external view returns (uint8);
-}
-
-// ERC20
-contract ERC20 is Context, IERC20, IERC20Metadata {
-    mapping(address => uint256) private _balances;
-
-    mapping(address => mapping(address => uint256)) private _allowances;
-
-    uint256 private _totalSupply;
-
-    string private _name;
-    string private _symbol;
-
-    constructor(string memory name_, string memory symbol_) {
-        _name = name_;
-        _symbol = symbol_;
-    }
-
-    function name() public view virtual override returns (string memory) {
-        return _name;
-    }
-
-    function symbol() public view virtual override returns (string memory) {
-        return _symbol;
-    }
-
-    function decimals() public view virtual override returns (uint8) {
-        return 18;
-    }
-
-    function totalSupply() public view virtual override returns (uint256) {
-        return _totalSupply;
-    }
-
-    function balanceOf(address account) public view virtual override returns (uint256) {
-        return _balances[account];
-    }
-
-    function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-        _transfer(owner, to, amount);
-        return true;
-    }
-
-    function allowance(address owner, address spender) public view virtual override returns (uint256) {
-        return _allowances[owner][spender];
-    }
-
-    function approve(address spender, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-        _approve(owner, spender, amount);
-        return true;
-    }
-
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) public virtual override returns (bool) {
-        address spender = _msgSender();
-        _spendAllowance(from, spender, amount);
-        _transfer(from, to, amount);
-        return true;
-    }
-
-    function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
-        address owner = _msgSender();
-        _approve(owner, spender, allowance(owner, spender) + addedValue);
-        return true;
-    }
-
-    function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
-        address owner = _msgSender();
-        uint256 currentAllowance = allowance(owner, spender);
-        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
-        unchecked {
-            _approve(owner, spender, currentAllowance - subtractedValue);
-        }
-
-        return true;
-    }
-
-    function _transfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-
-        _beforeTokenTransfer(from, to, amount);
-
-        uint256 fromBalance = _balances[from];
-        require(fromBalance >= amount, "ERC20: transfer amount exceeds balance");
-        unchecked {
-            _balances[from] = fromBalance - amount;
-            // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
-            // decrementing then incrementing.
-            _balances[to] += amount;
-        }
-
-        emit Transfer(from, to, amount);
-
-        _afterTokenTransfer(from, to, amount);
-    }
-
-    function _mint(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: mint to the zero address");
-
-        _beforeTokenTransfer(address(0), account, amount);
-
-        _totalSupply += amount;
-        unchecked {
-            // Overflow not possible: balance + amount is at most totalSupply + amount, which is checked above.
-            _balances[account] += amount;
-        }
-        emit Transfer(address(0), account, amount);
-
-        _afterTokenTransfer(address(0), account, amount);
-    }
-
-    function _burn(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: burn from the zero address");
-
-        _beforeTokenTransfer(account, address(0), amount);
-
-        uint256 accountBalance = _balances[account];
-        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
-        unchecked {
-            _balances[account] = accountBalance - amount;
-            // Overflow not possible: amount <= accountBalance <= totalSupply.
-            _totalSupply -= amount;
-        }
-
-        emit Transfer(account, address(0), amount);
-
-        _afterTokenTransfer(account, address(0), amount);
-    }
-
-    function _approve(
-        address owner,
-        address spender,
-        uint256 amount
-    ) internal virtual {
-        require(owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
-
-        _allowances[owner][spender] = amount;
-        emit Approval(owner, spender, amount);
-    }
-
-    function _spendAllowance(
-        address owner,
-        address spender,
-        uint256 amount
-    ) internal virtual {
-        uint256 currentAllowance = allowance(owner, spender);
-        if (currentAllowance != type(uint256).max) {
-            require(currentAllowance >= amount, "ERC20: insufficient allowance");
-            unchecked {
-                _approve(owner, spender, currentAllowance - amount);
-            }
-        }
-    }
-
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {}
-
-    function _afterTokenTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {}
-}
-
-
-contract Stepain is ERC20 {
+contract Stepain is ERC20,ReentrancyGuard {
 
     uint256 private initialSupply;
     uint256 private _maxTransferAmount;
+    address private _owner;
 
     address private constant MARKETING_FEE_ADDRESS = 0x6eF969580Bb4eA293878a713197B895BfDD82bbe;
     address private constant CHARITY_FEE_ADDRESS = 0xc2ACF98406BE652AfB7b1274ab1eFCb3fd15f115;
@@ -252,16 +45,22 @@ contract Stepain is ERC20 {
     event PayLiquidityFee(address indexed user, uint256 amount);
     event PayTaxFee(address indexed user, uint256 amount);
 
+    modifier onlyOwner() {
+        require(msg.sender == _owner, "Only the contract owner can perform this action.");
+        _;
+    }
+
     constructor() ERC20("STEPAIN", "MRC") {
         initialSupply = 400000000 * (10 ** decimals());
         _maxTransferAmount = 4000000 * (10 ** decimals());
 
-        _marketingFee = uint256(1) / uint256(2);
-        _charityFee = uint256(1) / uint256(2);
-        _liquidityFee = uint256(1) / uint256(2);
-        _taxFee = uint256(1) / uint256(2);
+        _marketingFee = 1;
+        _charityFee = 1;
+        _liquidityFee = 1;
+        _taxFee = 1;
         _unstakeFee = 15;
 
+        _owner = msg.sender;
         _mint(msg.sender, initialSupply);
     }
     
@@ -284,13 +83,14 @@ contract Stepain is ERC20 {
     // Transfer
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
+        require(to != msg.sender, "Self transfer is not supported");
+        require(balanceOf(msg.sender) >= amount, "Transfer amount exceeds balance");
         // Anti-whale
         require(_maxTransferAmount >= amount,"Amount exceeds maximum transfer limit");
-        address owner = _msgSender();
 
-        uint256 _finalTransferAmount = _payFees(owner,amount);
+        uint256 _finalTransferAmount = _payFees(msg.sender,amount);
+        _transfer(msg.sender, to, _finalTransferAmount);
 
-        _transfer(owner, to, _finalTransferAmount);
         lastTransactionTimestamp[msg.sender] = block.timestamp;
         return true;
     }
@@ -301,14 +101,17 @@ contract Stepain is ERC20 {
         uint256 marketingfee = (_amount * getMarketingFee()) / 100;
         _transfer(_user,MARKETING_FEE_ADDRESS,marketingfee);
         emit PayMarketingFee(_user,marketingfee);
+
         // Charity fee
         uint256 charityfee = (_amount * getCharityFee()) / 100;
         _transfer(_user,CHARITY_FEE_ADDRESS,charityfee);
         emit PayCharityFee(_user,charityfee);
+
         // Liquidity fee
         uint256 liquidityfee = (_amount * getLiquidityFee()) / 100;
         _transfer(_user,LIQUIDITY_FEE_ADDRESS,liquidityfee);
         emit PayLiquidityFee(_user,liquidityfee);
+
         // Tax Fee
         uint256 taxfee = (_amount * getTaxFee()) / 100;
         _transfer(_user,TAX_FEE_ADDRESS,taxfee);
@@ -319,65 +122,74 @@ contract Stepain is ERC20 {
     }
 
     // Claim
-    function claim() external {
-        require(stakingBalance[msg.sender] > 0, "No staked balance");
+    function claim() external nonReentrant{
         require(block.timestamp >= lastClaimedTime[msg.sender] + CLAIM_PERIOD, "Cannot claim yet");
-        uint256 reward = stakingBalance[msg.sender] * 3 / 100;
-        _mint(msg.sender,reward);
+        require(stakingBalance[msg.sender] > 0, "No staked balance");
+
+        uint256 reward = (stakingBalance[msg.sender] * 3) / 100;
+        uint256 _finalClaimAmount = _payFees(msg.sender, reward);
+        _mint(msg.sender, _finalClaimAmount);
+
         lastClaimedTime[msg.sender] = block.timestamp;
     }
     
     // Stake
     function stakeTokens(uint256 amount) external {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(amount > 0,"Staking amount must be more than 0");
-        require(balanceOf(msg.sender) >= amount,"Staking amount is more than balance");
-        _burn(msg.sender,amount);
+        require(balanceOf(msg.sender) >= amount, "Staking amount is more than balance");
+        require(amount > 0, "Staking amount must be more than 0");
+
+        _burn(msg.sender, amount);
         stakingBalance[msg.sender] = stakingBalance[msg.sender] + amount;
         emit Stake(msg.sender,amount);
+
         lastTransactionTimestamp[msg.sender] = block.timestamp;
     }
 
     // Unstake
-    function unstakeTokens(uint256 amount) external {
-        uint256 balance = stakingBalance[msg.sender];
+    function unstakeTokens(uint256 amount) external nonReentrant{
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(balance > 0,"Your staking balance is 0");
-        require(amount > 0,"Unstaking amount must be more than 0");
-        require(balance >= amount,"Staking balance must be more than unstaking amount");
+        require(stakingBalance[msg.sender] > 0,"Your staking balance is 0");
+        require(stakingBalance[msg.sender] >= amount,"Staking balance must be more than unstaking amount");
+        require(amount > 0,"Unstaking amount must be greater than 0 tokens");
+
         uint256 unstakeFee = (amount * _unstakeFee) / 100;
-        _mint(UNSTAKE_FEE_ADDRESS,unstakeFee);
-        uint256 _unstakeAmount = amount - _unstakeFee;
-        _mint(msg.sender,_unstakeAmount);
+        _mint(UNSTAKE_FEE_ADDRESS, unstakeFee);
+        uint256 _unstakeAmount = amount - unstakeFee;
+        _mint(msg.sender, _unstakeAmount);
         stakingBalance[msg.sender] = stakingBalance[msg.sender] - amount;
-        emit Unstake(msg.sender,amount);
+        emit Unstake(msg.sender, amount);
+
         lastTransactionTimestamp[msg.sender] = block.timestamp;
     }
 
     // Deposit
     function deposit() external payable {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        depositBalance[msg.sender] = depositBalance[msg.sender] + msg.value;
-        emit Deposit(msg.sender,msg.value);
+        //require(msg.value >= 0.005 ether, "You must deposit a minimum of 0.005 ETH"); // consider a minimum amount to deposit
+        require(msg.value > 0, "Deposit amount must be greater than 0");
+
         lastTransactionTimestamp[msg.sender] = block.timestamp;
+
+        depositBalance[msg.sender] = depositBalance[msg.sender] + msg.value;
+        emit Deposit(msg.sender, msg.value);
     }
 
     // Withdraw
-    function withdraw(uint256 amount) external {
+    function withdraw(uint256 amount) external nonReentrant {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
         require(depositBalance[msg.sender] >= amount, "Insufficient balance");
 
         lastTransactionTimestamp[msg.sender] = block.timestamp;
         depositBalance[msg.sender] -= amount;
-
+        emit Withdraw(msg.sender, amount);
+        
         (bool success, ) = msg.sender.call{value: amount}("");
         require(success, "Withdrawal failed");
-
-        emit Withdraw(msg.sender,amount);
     }
 
     // Autoburn
-    function autoburn() external {
+    function autoburn() external onlyOwner {
         require(block.timestamp >= lastAutoburnTimestamp + AUTOBURN_INTERVAL, "Autoburn interval not yet reached");
         
         uint256 burnAmount = (totalSupply() * 5) / 1000; // 0.5% of total supply
@@ -386,7 +198,10 @@ contract Stepain is ERC20 {
             burnAmount = (totalSupply() * MAX_BURN_PERCENTAGE) / 100; // limit to maximum autoburn percentage
         }
         
-        _burn(msg.sender,burnAmount);
+        _burn(msg.sender, burnAmount);
+        
         lastAutoburnTimestamp = block.timestamp;
     }
+
 }
+ 
