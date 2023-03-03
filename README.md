@@ -1,2 +1,2 @@
 # stepain_token
-ERC-20 contract project
+BEP20 Token Contract for BSC
