@@ -1,5 +1,5 @@
 # stepain_token
-## BEP20 Token Contract for BSC
+## BEP20 Token Contract for BSC. Includes Anti-Whale, Anti-Bot, Auto-Burn and Staking 
 ## Prerequisites
 
 Please install or have installed the following:
