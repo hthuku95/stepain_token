@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.18;
 
-abstract contract Context {
-    function _msgSender() internal view virtual returns (address) {
-        return msg.sender;
-    }
-
-    function _msgData() internal view virtual returns (bytes calldata) {
-        return msg.data;
-    }
-}
-
-interface IERC20 {
+interface IBEP20 {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+    event Stake(address indexed user, uint256 amount);
+    event Unstake(address indexed user, uint256 amount);
+    event Deposit(address indexed user, uint256 amount);
+    event Withdraw(address indexed user, uint256 amount);
+    event PayMarketingFee(address indexed user, uint256 amount);
+    event PayCharityFee(address indexed user, uint256 amount);
+    event PayLiquidityFee(address indexed user, uint256 amount);
+    event PayTaxFee(address indexed user, uint256 amount);
+    event RewardClaimed(address indexed account, uint256 amount);
     function totalSupply() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function transferFrom(
@@ -24,51 +23,19 @@ interface IERC20 {
         address to,
         uint256 amount
     ) external returns (bool);
-}
-
-interface IERC20Metadata is IERC20 {
     function name() external view returns (string memory);
     function symbol() external view returns (string memory);
     function decimals() external view returns (uint8);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function claim() external;
+    function stakeTokens(uint256 amount, uint256 stakingPeriod) external;
+    function unstakeTokens(uint256 amount) external;
+    function deposit() external payable;
+    function withdraw(uint256 amount) external;
+    function autoburn() external;
 }
 
-abstract contract ReentrancyGuard {
-
-    uint256 private constant _NOT_ENTERED = 1;
-    uint256 private constant _ENTERED = 2;
-
-    uint256 private _status;
-
-    constructor() {
-        _status = _NOT_ENTERED;
-    }
-
-    modifier nonReentrant() {
-        _nonReentrantBefore();
-        _;
-        _nonReentrantAfter();
-    }
-
-    function _nonReentrantBefore() private {
-        // On the first call to nonReentrant, _status will be _NOT_ENTERED
-        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
-
-        // Any calls to nonReentrant after this point will fail
-        _status = _ENTERED;
-    }
-
-    function _nonReentrantAfter() private {
-        // By storing the original value once again, a refund is triggered (see
-        // https://eips.ethereum.org/EIPS/eip-2200)
-        _status = _NOT_ENTERED;
-    }
-
-    function _reentrancyGuardEntered() internal view returns (bool) {
-        return _status == _ENTERED;
-    }
-}
-
-contract ERC20 is Context, IERC20, IERC20Metadata {
+contract Stepain is IBEP20 {
     mapping(address => uint256) private _balances;
 
     mapping(address => mapping(address => uint256)) private _allowances;
@@ -78,9 +45,98 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
     string private _name;
     string private _symbol;
 
-    constructor(string memory name_, string memory symbol_) {
-        _name = name_;
-        _symbol = symbol_;
+    uint256 private initialSupply;
+    uint256 private _maxTransferAmount;
+    address private _owner;
+
+    address private constant MARKETING_FEE_ADDRESS = 0x6eF969580Bb4eA293878a713197B895BfDD82bbe;
+    address private constant CHARITY_FEE_ADDRESS = 0xc2ACF98406BE652AfB7b1274ab1eFCb3fd15f115;
+    address private constant LIQUIDITY_FEE_ADDRESS = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
+    address private constant TAX_FEE_ADDRESS = 0xfa1281d974fE922437F03817947246070eE898B1;
+    address private constant UNSTAKE_FEE_ADDRESS = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
+
+    uint256 private _marketingFee;
+    uint256 private _charityFee;
+    uint256 private _liquidityFee;
+    uint256 private _taxFee;
+    uint256 private _unstakeFee;
+    uint256  private constant CLAIM_PERIOD = 15 days;
+
+    // Anti-bot checker
+    uint256 private constant MIN_TIME_DELAY = 120;
+
+    // Auto-burn
+    uint256 private constant MAX_BURN_PERCENTAGE = 25;
+    uint256 private constant AUTOBURN_INTERVAL = 4 * 30 days; // 4 months
+    uint256 private lastAutoburnTimestamp;
+
+    uint256 public constant STAKING_DURATION_60DAYS = 60 days;
+    uint256 public constant STAKING_DURATION_120DAYS = 120 days;
+    uint256 public constant STAKING_DURATION_150DAYS = 150 days;
+    uint256 public constant STAKING_DURATION_180DAYS = 180 days;
+
+    uint256[] stakingDurations = [
+        STAKING_DURATION_60DAYS,
+        STAKING_DURATION_120DAYS,
+        STAKING_DURATION_150DAYS,
+        STAKING_DURATION_180DAYS
+    ];
+
+    mapping(address=>uint256) public stakingBalance;
+    mapping(address=>uint256) public depositBalance;
+    mapping(address => uint256) lastTransactionTimestamp;
+    mapping(address => uint256) public lastClaimedTime;
+    mapping(address => uint256) private _lockTime;
+
+    // Reetrancy Guard
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status;
+
+    modifier nonReentrant() {
+        _nonReentrantBefore();
+        _;
+        _nonReentrantAfter();
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == _owner, "Only the contract owner can perform this action.");
+        _;
+    }
+
+    constructor() {
+        _name = "STEPAIN";
+        _symbol = "MRC";
+        initialSupply = 400000000 * (10 ** decimals());
+        _maxTransferAmount = 4000000 * (10 ** decimals());
+
+        _marketingFee = 1;
+        _charityFee = 1;
+        _liquidityFee = 1;
+        _taxFee = 1;
+        _unstakeFee = 15;
+
+        _owner = _msgSender();
+        _mint(_msgSender(), initialSupply);
+        // Reentrancy Guard
+        _status = _NOT_ENTERED;
+    }
+    // Reentrancy Guard
+    function _nonReentrantBefore() private {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+    }
+
+    function _nonReentrantAfter() private {
+        _status = _NOT_ENTERED;
+    }
+
+    function _msgSender() internal view virtual returns (address) {
+        return msg.sender;
+    }
+
+    function _msgData() internal view virtual returns (bytes calldata) {
+        return msg.data;
     }
 
     function name() public view virtual override returns (string memory) {
@@ -99,14 +155,9 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
         return _totalSupply;
     }
 
+ 
     function balanceOf(address account) public view virtual override returns (uint256) {
         return _balances[account];
-    }
-
-    function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-        _transfer(owner, to, amount);
-        return true;
     }
 
     function allowance(address owner, address spender) public view virtual override returns (uint256) {
@@ -241,81 +292,7 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
         address to,
         uint256 amount
     ) internal virtual {}
-}
 
-contract Stepain is ERC20,ReentrancyGuard {
-
-    uint256 private initialSupply;
-    uint256 private _maxTransferAmount;
-    address private _owner;
-
-    address private constant MARKETING_FEE_ADDRESS = 0x6eF969580Bb4eA293878a713197B895BfDD82bbe;
-    address private constant CHARITY_FEE_ADDRESS = 0xc2ACF98406BE652AfB7b1274ab1eFCb3fd15f115;
-    address private constant LIQUIDITY_FEE_ADDRESS = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
-    address private constant TAX_FEE_ADDRESS = 0xfa1281d974fE922437F03817947246070eE898B1;
-    address private constant UNSTAKE_FEE_ADDRESS = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
-
-    uint256 private _marketingFee;
-    uint256 private _charityFee;
-    uint256 private _liquidityFee;
-    uint256 private _taxFee;
-    uint256 private _unstakeFee;
-    uint256  private constant CLAIM_PERIOD = 15 days;
-
-    // Anti-bot checker
-    uint256 private constant MIN_TIME_DELAY = 120;
-
-    // Auto-burn
-    uint256 private constant MAX_BURN_PERCENTAGE = 25;
-    uint256 private constant AUTOBURN_INTERVAL = 4 * 30 days; // 4 months
-    uint256 private lastAutoburnTimestamp;
-
-    uint256 public constant STAKING_DURATION_60DAYS = 60 days;
-    uint256 public constant STAKING_DURATION_120DAYS = 120 days;
-    uint256 public constant STAKING_DURATION_150DAYS = 150 days;
-    uint256 public constant STAKING_DURATION_180DAYS = 180 days;
-
-    uint256[] stakingDurations = [
-        STAKING_DURATION_60DAYS,
-        STAKING_DURATION_120DAYS,
-        STAKING_DURATION_150DAYS,
-        STAKING_DURATION_180DAYS
-    ];
-
-    mapping(address=>uint256) public stakingBalance;
-    mapping(address=>uint256) public depositBalance;
-    mapping(address => uint256) lastTransactionTimestamp;
-    mapping(address => uint256) public lastClaimedTime;
-    mapping(address => uint256) private _lockTime;
-
-    event Stake(address indexed user, uint256 amount);
-    event Unstake(address indexed user, uint256 amount);
-    event Deposit(address indexed user, uint256 amount);
-    event Withdraw(address indexed user, uint256 amount);
-    event PayMarketingFee(address indexed user, uint256 amount);
-    event PayCharityFee(address indexed user, uint256 amount);
-    event PayLiquidityFee(address indexed user, uint256 amount);
-    event PayTaxFee(address indexed user, uint256 amount);
-    event RewardClaimed(address indexed account, uint256 amount);
-
-    modifier onlyOwner() {
-        require(msg.sender == _owner, "Only the contract owner can perform this action.");
-        _;
-    }
-
-    constructor() ERC20("STEPAIN", "MRC") {
-        initialSupply = 400000000 * (10 ** decimals());
-        _maxTransferAmount = 4000000 * (10 ** decimals());
-
-        _marketingFee = 1;
-        _charityFee = 1;
-        _liquidityFee = 1;
-        _taxFee = 1;
-        _unstakeFee = 15;
-
-        _owner = msg.sender;
-        _mint(msg.sender, initialSupply);
-    }
     // Get Tax Fee
     function getTaxFee() public view returns (uint256) {
         return _taxFee;
@@ -358,21 +335,23 @@ contract Stepain is ERC20,ReentrancyGuard {
 
     // Transfer
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(to != msg.sender, "Self transfer is not supported");
-        require(balanceOf(msg.sender) >= amount, "Transfer amount exceeds balance");
+        address owner = _msgSender();
+        require(block.timestamp - lastTransactionTimestamp[owner] >= MIN_TIME_DELAY, "You must wait before making another transaction");
+        require(to != owner, "Self transfer is not supported");
+        require(balanceOf(owner) >= amount, "Transfer amount exceeds balance");
         // Anti-whale
         require(_maxTransferAmount >= amount,"Amount exceeds maximum transfer limit");
 
-        uint256 _finalTransferAmount = _payFees(msg.sender,amount);
-        _transfer(msg.sender, to, _finalTransferAmount);
+        uint256 _finalTransferAmount = _payFees(owner,amount);
+        _transfer(owner, to, _finalTransferAmount);
 
-        lastTransactionTimestamp[msg.sender] = block.timestamp;
+        lastTransactionTimestamp[owner] = block.timestamp;
         return true;
     }
 
     // Transfer fees
     function _payFees(address _user,uint256 _amount) internal returns(uint256) {
+
         // Marketing fee
         uint256 marketingfee = (_amount * getMarketingFee()) / 100;
         _transfer(_user,MARKETING_FEE_ADDRESS,marketingfee);
@@ -409,7 +388,7 @@ contract Stepain is ERC20,ReentrancyGuard {
         lastClaimedTime[msg.sender] = block.timestamp;
         emit RewardClaimed(msg.sender, _finalClaimAmount);
     }
-    
+
     // Stake
     function stakeTokens(uint256 amount, uint256 stakingPeriod) external {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
@@ -461,7 +440,6 @@ contract Stepain is ERC20,ReentrancyGuard {
             emit Unstake(msg.sender, amount);  
 
         }
-
         lastTransactionTimestamp[msg.sender] = block.timestamp;
     }
 
