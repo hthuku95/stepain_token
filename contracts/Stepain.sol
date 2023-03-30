@@ -13,6 +13,7 @@ interface IBEP20 {
     event PayCharityFee(address indexed user, uint256 amount);
     event PayLiquidityFee(address indexed user, uint256 amount);
     event PayTaxFee(address indexed user, uint256 amount);
+    event PayTradingFee(address indexed user, uint256 amount);
     event RewardClaimed(address indexed account, uint256 amount);
     function totalSupply() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
@@ -54,12 +55,14 @@ contract Stepain is IBEP20 {
     address private constant LIQUIDITY_FEE_ADDRESS = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
     address private constant TAX_FEE_ADDRESS = 0xfa1281d974fE922437F03817947246070eE898B1;
     address private constant UNSTAKE_FEE_ADDRESS = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
+    address private constant TRADING_FEE_ADDRESS = 0x39C2486E884577556111EE32a91bce80306D04d2;
 
     uint256 private _marketingFee;
     uint256 private _charityFee;
     uint256 private _liquidityFee;
     uint256 private _taxFee;
     uint256 private _unstakeFee;
+    uint256 private _tradingFee;
     uint256  private constant CLAIM_PERIOD = 15 days;
 
     // Anti-bot checker
@@ -82,8 +85,8 @@ contract Stepain is IBEP20 {
         STAKING_DURATION_180DAYS
     ];
 
-    mapping(address=>uint256) public stakingBalance;
-    mapping(address=>uint256) public depositBalance;
+    mapping(address => uint256) public stakingBalance;
+    mapping(address => uint256) public depositBalance;
     mapping(address => uint256) lastTransactionTimestamp;
     mapping(address => uint256) public lastClaimedTime;
     mapping(address => uint256) private _lockTime;
@@ -110,10 +113,11 @@ contract Stepain is IBEP20 {
         initialSupply = 400000000 * (10 ** decimals());
         _maxTransferAmount = 4000000 * (10 ** decimals());
 
-        _marketingFee = 1;
-        _charityFee = 1;
-        _liquidityFee = 1;
-        _taxFee = 1;
+        _marketingFee = 7;
+        _charityFee = 7;
+        _liquidityFee = 7;
+        _taxFee = 7;
+        _tradingFee = 7;
         _unstakeFee = 15;
 
         _owner = _msgSender();
@@ -313,6 +317,11 @@ contract Stepain is IBEP20 {
         return _marketingFee;
     }
 
+    // Get Trading Fee
+    function getTradingFee() public view returns (uint256) {
+        return _tradingFee;
+    }
+
     // Set Tax Fee
     function setTaxFee(uint256 amount) public onlyOwner {
         _taxFee = amount;
@@ -331,6 +340,10 @@ contract Stepain is IBEP20 {
     // Set Marketing Fee
     function setMarketingFee(uint256 amount) public onlyOwner {
         _marketingFee = amount;
+    }
+
+    function setTradingFee(uint256 amount) public onlyOwner {
+        _tradingFee = amount;
     }
 
     // Transfer
@@ -353,26 +366,31 @@ contract Stepain is IBEP20 {
     function _payFees(address _user,uint256 _amount) internal returns(uint256) {
 
         // Marketing fee
-        uint256 marketingfee = (_amount * getMarketingFee()) / 100;
+        uint256 marketingfee = (_amount * getMarketingFee()) / 1000;
         _transfer(_user,MARKETING_FEE_ADDRESS,marketingfee);
         emit PayMarketingFee(_user,marketingfee);
 
         // Charity fee
-        uint256 charityfee = (_amount * getCharityFee()) / 100;
+        uint256 charityfee = (_amount * getCharityFee()) / 1000;
         _transfer(_user,CHARITY_FEE_ADDRESS,charityfee);
         emit PayCharityFee(_user,charityfee);
 
         // Liquidity fee
-        uint256 liquidityfee = (_amount * getLiquidityFee()) / 100;
+        uint256 liquidityfee = (_amount * getLiquidityFee()) / 1000;
         _transfer(_user,LIQUIDITY_FEE_ADDRESS,liquidityfee);
         emit PayLiquidityFee(_user,liquidityfee);
 
         // Tax Fee
-        uint256 taxfee = (_amount * getTaxFee()) / 100;
+        uint256 taxfee = (_amount * getTaxFee()) / 1000;
         _transfer(_user,TAX_FEE_ADDRESS,taxfee);
         emit PayTaxFee(_user,taxfee);
 
-        uint256 finalTransferAmount = _amount - (marketingfee + charityfee + liquidityfee + taxfee);
+        // Trading Fee
+        uint256 tradingfee = (_amount * getTradingFee()) / 1000;
+        _transfer(_user, TRADING_FEE_ADDRESS,tradingfee);
+        emit PayTradingFee(_user,tradingfee);
+
+        uint256 finalTransferAmount = _amount - (marketingfee + charityfee + liquidityfee + taxfee + tradingfee);
         return finalTransferAmount;
     }
 
@@ -446,7 +464,7 @@ contract Stepain is IBEP20 {
     // Deposit
     function deposit() external payable {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(msg.value >= 0.005 ether, "You must deposit a minimum of 0.005 ETH"); // consider a minimum amount to deposit
+        require(msg.value >= 0.005 ether, "You must deposit a minimum of 0.005 BNB"); // consider a minimum amount to deposit
 
         lastTransactionTimestamp[msg.sender] = block.timestamp;
 
