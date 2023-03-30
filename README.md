@@ -1,5 +1,6 @@
 # stepain_token
 ## BEP20 Token Contract for BSC. Includes Anti-Whale, Anti-Bot, Auto-Burn and Staking 
+Created as a freelance project
 ## Prerequisites
 
 Please install or have installed the following:
@@ -41,3 +42,5 @@ git clone https://github.com/hthuku95/stepain_token.git
 ```
 brownie run scripts/deploy_token.py
 ```
+
+Interact with the contract on [bscscan](https://testnet.bscscan.com/address/0xF2d8A812aca84D69aDc8FE55E753A66d41d01534)
