@@ -1,50 +1,10 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.18;
 
-interface IBEP20 {
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Stake(address indexed user, uint256 amount);
-    event Unstake(address indexed user, uint256 amount);
-    event Deposit(address indexed user, uint256 amount);
-    event Withdraw(address indexed user, uint256 amount);
-    event PayMarketingFee(address indexed user, uint256 amount);
-    event PayCharityFee(address indexed user, uint256 amount);
-    event PayLiquidityFee(address indexed user, uint256 amount);
-    event PayTaxFee(address indexed user, uint256 amount);
-    event PayTradingFee(address indexed user, uint256 amount);
-    event RewardClaimed(address indexed account, uint256 amount);
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool);
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function decimals() external view returns (uint8);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function claim() external;
-    function stakeTokens(uint256 amount, uint256 stakingPeriod) external;
-    function unstakeTokens(uint256 amount) external;
-    function deposit() external payable;
-    function withdraw(uint256 amount) external;
-    function autoburn() external;
-}
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract Stepain is IBEP20 {
-    mapping(address => uint256) private _balances;
-
-    mapping(address => mapping(address => uint256)) private _allowances;
-
-    uint256 private _totalSupply;
-
-    string private _name;
-    string private _symbol;
+contract Stepain is ERC20,ReentrancyGuard {
 
     uint256 private initialSupply;
     uint256 private _maxTransferAmount;
@@ -55,14 +15,12 @@ contract Stepain is IBEP20 {
     address private constant LIQUIDITY_FEE_ADDRESS = 0x9d48e287D30e509dbd1347C1e0a21e793Fa3c638;
     address private constant TAX_FEE_ADDRESS = 0xfa1281d974fE922437F03817947246070eE898B1;
     address private constant UNSTAKE_FEE_ADDRESS = 0xFb72e8d18a46144ae2D59fb1134F0128D99F153F;
-    address private constant TRADING_FEE_ADDRESS = 0x39C2486E884577556111EE32a91bce80306D04d2;
 
     uint256 private _marketingFee;
     uint256 private _charityFee;
     uint256 private _liquidityFee;
     uint256 private _taxFee;
     uint256 private _unstakeFee;
-    uint256 private _tradingFee;
     uint256  private constant CLAIM_PERIOD = 15 days;
 
     // Anti-bot checker
@@ -85,217 +43,40 @@ contract Stepain is IBEP20 {
         STAKING_DURATION_180DAYS
     ];
 
-    mapping(address => uint256) public stakingBalance;
-    mapping(address => uint256) public depositBalance;
+    mapping(address=>uint256) public stakingBalance;
+    mapping(address=>uint256) public depositBalance;
     mapping(address => uint256) lastTransactionTimestamp;
     mapping(address => uint256) public lastClaimedTime;
     mapping(address => uint256) private _lockTime;
 
-    // Reetrancy Guard
-    uint256 private constant _NOT_ENTERED = 1;
-    uint256 private constant _ENTERED = 2;
-    uint256 private _status;
-
-    modifier nonReentrant() {
-        _nonReentrantBefore();
-        _;
-        _nonReentrantAfter();
-    }
+    event Stake(address indexed user, uint256 amount);
+    event Unstake(address indexed user, uint256 amount);
+    event Deposit(address indexed user, uint256 amount);
+    event Withdraw(address indexed user, uint256 amount);
+    event PayMarketingFee(address indexed user, uint256 amount);
+    event PayCharityFee(address indexed user, uint256 amount);
+    event PayLiquidityFee(address indexed user, uint256 amount);
+    event PayTaxFee(address indexed user, uint256 amount);
+    event RewardClaimed(address indexed account, uint256 amount);
 
     modifier onlyOwner() {
         require(msg.sender == _owner, "Only the contract owner can perform this action.");
         _;
     }
 
-    constructor() {
-        _name = "STEPAIN";
-        _symbol = "MRC";
+    constructor() ERC20("STEPAIN", "MRC") {
         initialSupply = 400000000 * (10 ** decimals());
         _maxTransferAmount = 4000000 * (10 ** decimals());
 
-        _marketingFee = 7;
-        _charityFee = 7;
-        _liquidityFee = 7;
-        _taxFee = 7;
-        _tradingFee = 7;
+        _marketingFee = 1;
+        _charityFee = 1;
+        _liquidityFee = 1;
+        _taxFee = 1;
         _unstakeFee = 15;
 
-        _owner = _msgSender();
-        _mint(_msgSender(), initialSupply);
-        // Reentrancy Guard
-        _status = _NOT_ENTERED;
+        _owner = msg.sender;
+        _mint(msg.sender, initialSupply);
     }
-    // Reentrancy Guard
-    function _nonReentrantBefore() private {
-        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
-        _status = _ENTERED;
-    }
-
-    function _nonReentrantAfter() private {
-        _status = _NOT_ENTERED;
-    }
-
-    function _msgSender() internal view virtual returns (address) {
-        return msg.sender;
-    }
-
-    function _msgData() internal view virtual returns (bytes calldata) {
-        return msg.data;
-    }
-
-    function name() public view virtual override returns (string memory) {
-        return _name;
-    }
-
-    function symbol() public view virtual override returns (string memory) {
-        return _symbol;
-    }
-
-    function decimals() public view virtual override returns (uint8) {
-        return 18;
-    }
-
-    function totalSupply() public view virtual override returns (uint256) {
-        return _totalSupply;
-    }
-
- 
-    function balanceOf(address account) public view virtual override returns (uint256) {
-        return _balances[account];
-    }
-
-    function allowance(address owner, address spender) public view virtual override returns (uint256) {
-        return _allowances[owner][spender];
-    }
-
-    function approve(address spender, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-        _approve(owner, spender, amount);
-        return true;
-    }
-
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) public virtual override returns (bool) {
-        address spender = _msgSender();
-        _spendAllowance(from, spender, amount);
-        _transfer(from, to, amount);
-        return true;
-    }
-
-    function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
-        address owner = _msgSender();
-        _approve(owner, spender, allowance(owner, spender) + addedValue);
-        return true;
-    }
-
-    function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
-        address owner = _msgSender();
-        uint256 currentAllowance = allowance(owner, spender);
-        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
-        unchecked {
-            _approve(owner, spender, currentAllowance - subtractedValue);
-        }
-
-        return true;
-    }
-
-    function _transfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-
-        _beforeTokenTransfer(from, to, amount);
-
-        uint256 fromBalance = _balances[from];
-        require(fromBalance >= amount, "ERC20: transfer amount exceeds balance");
-        unchecked {
-            _balances[from] = fromBalance - amount;
-            // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
-            // decrementing then incrementing.
-            _balances[to] += amount;
-        }
-
-        emit Transfer(from, to, amount);
-
-        _afterTokenTransfer(from, to, amount);
-    }
-
-    function _mint(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: mint to the zero address");
-
-        _beforeTokenTransfer(address(0), account, amount);
-
-        _totalSupply += amount;
-        unchecked {
-            // Overflow not possible: balance + amount is at most totalSupply + amount, which is checked above.
-            _balances[account] += amount;
-        }
-        emit Transfer(address(0), account, amount);
-
-        _afterTokenTransfer(address(0), account, amount);
-    }
-
-    function _burn(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: burn from the zero address");
-
-        _beforeTokenTransfer(account, address(0), amount);
-
-        uint256 accountBalance = _balances[account];
-        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
-        unchecked {
-            _balances[account] = accountBalance - amount;
-            // Overflow not possible: amount <= accountBalance <= totalSupply.
-            _totalSupply -= amount;
-        }
-
-        emit Transfer(account, address(0), amount);
-
-        _afterTokenTransfer(account, address(0), amount);
-    }
-
-    function _approve(
-        address owner,
-        address spender,
-        uint256 amount
-    ) internal virtual {
-        require(owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
-
-        _allowances[owner][spender] = amount;
-        emit Approval(owner, spender, amount);
-    }
-
-    function _spendAllowance(
-        address owner,
-        address spender,
-        uint256 amount
-    ) internal virtual {
-        uint256 currentAllowance = allowance(owner, spender);
-        if (currentAllowance != type(uint256).max) {
-            require(currentAllowance >= amount, "ERC20: insufficient allowance");
-            unchecked {
-                _approve(owner, spender, currentAllowance - amount);
-            }
-        }
-    }
-
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {}
-
-    function _afterTokenTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual {}
 
     // Get Tax Fee
     function getTaxFee() public view returns (uint256) {
@@ -315,11 +96,6 @@ contract Stepain is IBEP20 {
     // Get Marketing Fee
     function getMarketingFee() public view returns (uint256) {
         return _marketingFee;
-    }
-
-    // Get Trading Fee
-    function getTradingFee() public view returns (uint256) {
-        return _tradingFee;
     }
 
     // Set Tax Fee
@@ -342,23 +118,18 @@ contract Stepain is IBEP20 {
         _marketingFee = amount;
     }
 
-    function setTradingFee(uint256 amount) public onlyOwner {
-        _tradingFee = amount;
-    }
-
     // Transfer
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-        require(block.timestamp - lastTransactionTimestamp[owner] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(to != owner, "Self transfer is not supported");
-        require(balanceOf(owner) >= amount, "Transfer amount exceeds balance");
+        require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
+        require(to != msg.sender, "Self transfer is not supported");
+        require(balanceOf(msg.sender) >= amount, "Transfer amount exceeds balance");
         // Anti-whale
         require(_maxTransferAmount >= amount,"Amount exceeds maximum transfer limit");
 
-        uint256 _finalTransferAmount = _payFees(owner,amount);
-        _transfer(owner, to, _finalTransferAmount);
+        uint256 _finalTransferAmount = _payFees(msg.sender,amount);
+        _transfer(msg.sender, to, _finalTransferAmount);
 
-        lastTransactionTimestamp[owner] = block.timestamp;
+        lastTransactionTimestamp[msg.sender] = block.timestamp;
         return true;
     }
 
@@ -366,31 +137,26 @@ contract Stepain is IBEP20 {
     function _payFees(address _user,uint256 _amount) internal returns(uint256) {
 
         // Marketing fee
-        uint256 marketingfee = (_amount * getMarketingFee()) / 1000;
+        uint256 marketingfee = (_amount * getMarketingFee()) / 100;
         _transfer(_user,MARKETING_FEE_ADDRESS,marketingfee);
         emit PayMarketingFee(_user,marketingfee);
 
         // Charity fee
-        uint256 charityfee = (_amount * getCharityFee()) / 1000;
+        uint256 charityfee = (_amount * getCharityFee()) / 100;
         _transfer(_user,CHARITY_FEE_ADDRESS,charityfee);
         emit PayCharityFee(_user,charityfee);
 
         // Liquidity fee
-        uint256 liquidityfee = (_amount * getLiquidityFee()) / 1000;
+        uint256 liquidityfee = (_amount * getLiquidityFee()) / 100;
         _transfer(_user,LIQUIDITY_FEE_ADDRESS,liquidityfee);
         emit PayLiquidityFee(_user,liquidityfee);
 
         // Tax Fee
-        uint256 taxfee = (_amount * getTaxFee()) / 1000;
+        uint256 taxfee = (_amount * getTaxFee()) / 100;
         _transfer(_user,TAX_FEE_ADDRESS,taxfee);
         emit PayTaxFee(_user,taxfee);
 
-        // Trading Fee
-        uint256 tradingfee = (_amount * getTradingFee()) / 1000;
-        _transfer(_user, TRADING_FEE_ADDRESS,tradingfee);
-        emit PayTradingFee(_user,tradingfee);
-
-        uint256 finalTransferAmount = _amount - (marketingfee + charityfee + liquidityfee + taxfee + tradingfee);
+        uint256 finalTransferAmount = _amount - (marketingfee + charityfee + liquidityfee + taxfee);
         return finalTransferAmount;
     }
 
@@ -406,7 +172,7 @@ contract Stepain is IBEP20 {
         lastClaimedTime[msg.sender] = block.timestamp;
         emit RewardClaimed(msg.sender, _finalClaimAmount);
     }
-
+    
     // Stake
     function stakeTokens(uint256 amount, uint256 stakingPeriod) external {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
@@ -464,7 +230,7 @@ contract Stepain is IBEP20 {
     // Deposit
     function deposit() external payable {
         require(block.timestamp - lastTransactionTimestamp[msg.sender] >= MIN_TIME_DELAY, "You must wait before making another transaction");
-        require(msg.value >= 0.005 ether, "You must deposit a minimum of 0.005 BNB"); // consider a minimum amount to deposit
+        require(msg.value >= 0.005 ether, "You must deposit a minimum of 0.005 ETH"); // consider a minimum amount to deposit
 
         lastTransactionTimestamp[msg.sender] = block.timestamp;
 
